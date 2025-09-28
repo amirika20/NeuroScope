@@ -1,5 +1,7 @@
 # NeuroScope
 
+![Logo](assets/neuroscope_logo.png)
+
 A small, modular playground for learning function approximation with neural networks—featuring:
 
 - 1D **and** 2D inputs (with a 3D surface view in 2D mode)
@@ -124,22 +126,5 @@ main(cfg)
 - Matplotlib
 - tqdm
 - ffmpeg (optional)
-
----
-
-## Extending
-
-- Add functions in `functions.py`
-- Add losses/PDEs in `losses.py`
-- Extend visualization in `viz.py`
-
----
-
-## Naming Ideas
-
-- CurvLab  
-- EoSDash  
-- FitScope  
-- SurfLearn  
 
 ---
