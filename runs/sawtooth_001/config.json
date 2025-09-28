@@ -1,0 +1,33 @@
+{
+  "n_samples": 500,
+  "x_min": -3.0,
+  "x_max": 3.0,
+  "noise_std": 0.08,
+  "seed": 0,
+  "function_name": "sawtooth",
+  "function_params": null,
+  "hidden": 64,
+  "lr": 0.01,
+  "total_steps": 5000,
+  "steps_per_frame": 10,
+  "sharpness_stride": 20,
+  "power_iters": 20,
+  "n_plot_points": 1200,
+  "x_vis_min": -8.0,
+  "x_vis_max": 8.0,
+  "vis_pad_frac": 0.5,
+  "dpi": 140,
+  "figsize": [
+    11.5,
+    7.2
+  ],
+  "fps_mp4": 20,
+  "bitrate_mp4": 1800,
+  "fps_gif": 15,
+  "runs_root": "runs",
+  "project_name": "sawtooth",
+  "run_dir": "runs/sawtooth_001",
+  "out_mp4": "runs/sawtooth_001/animation.mp4",
+  "out_gif": "runs/sawtooth_001/animation.gif",
+  "ffmpeg_path": null
+}

@@ -1,0 +1,33 @@
+{
+  "n_samples": 120,
+  "x_min": -6.283185307179586,
+  "x_max": 6.283185307179586,
+  "noise_std": 0.08,
+  "seed": 0,
+  "function_name": "sin",
+  "function_params": null,
+  "hidden": 64,
+  "lr": 0.01,
+  "total_steps": 1500,
+  "steps_per_frame": 10,
+  "sharpness_stride": 20,
+  "power_iters": 20,
+  "n_plot_points": 1200,
+  "x_vis_min": null,
+  "x_vis_max": null,
+  "vis_pad_frac": 0.5,
+  "dpi": 140,
+  "figsize": [
+    11.5,
+    7.2
+  ],
+  "fps_mp4": 20,
+  "bitrate_mp4": 1800,
+  "fps_gif": 15,
+  "runs_root": "runs",
+  "project_name": "custom-harmonics",
+  "run_dir": "runs/custom-harmonics_001",
+  "out_mp4": "runs/custom-harmonics_001/animation.mp4",
+  "out_gif": "runs/custom-harmonics_001/animation.gif",
+  "ffmpeg_path": null
+}
