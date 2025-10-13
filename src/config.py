@@ -1,66 +1,59 @@
-# sinfit/config.py
 from __future__ import annotations
-import math
 from dataclasses import dataclass
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple
 
 @dataclass
 class Config:
-    # Data (training interval)
-    n_samples: int = 500
-    x_min: float = -2 * math.pi
-    x_max: float =  2 * math.pi
-    noise_std: float = 0.08
-    seed: int = 0
+    # ---- project/io ----
+    project_name: str = "run"
+    seed: int = 42
+    run_dir: Optional[str] = None      # set at runtime
+    metrics_csv: Optional[str] = None  # set at runtime
+    fits_path: Optional[str] = None    # set at runtime (memmap file)
+    fits_meta_path: Optional[str] = None
+    fits_x_path: Optional[str] = None
+    train_points_path: Optional[str] = None
 
-    # ---- Target function selection ----
-    # Choose by name from sinfit.functions.FUNCTIONS (e.g., "sin", "poly")
-    function_name: str = "sin"
-    # Optional kwargs for that function, saved to config.json
-    function_params: Dict[str, Any] = None  # e.g., {"a":0.1,"b":0.0,"c":1.0,"d":0.0}
+    # ---- data (1D only) ----
+    input_dim: int = 1
+    # training interval
+    x_min: float = -2.0
+    x_max: float = 2.0
+    n_samples: int = 512
+    noise_std: float = 0.0
+    # visualization (full range for gen error)
+    n_plot_points: int = 2048
+    vis_pad_frac: float = 0.5         # expand beyond train interval for X_vis
 
-    # Model / training
-    input_dim: int = 1  # set to 2 for 2-D input
+    # ---- target function ----
+    function_name: str = "sin"        # "sin", "poly", "custom"
+    # poly: a*x^3 + b*x^2 + c*x + d
+    function_params: dict = None      # e.g., {'a':2,'b':1,'c':-1,'d':5}
+    # if function_name == "custom", provide a python path "package.module:fn"
+    # where fn: np.ndarray(N,1) -> np.ndarray(N,1) (float32)
+
+    # ---- model ----
     hidden: int = 64
-    lr: float = 1e-2
-    total_steps: int = 5000
-    steps_per_frame: int = 10
-    criterion_name: str = "mse"
+    depth: int = 2                    # number of hidden layers
+    activation: str = "tanh"          # "tanh" or "relu"
 
-    # Curvature tracking
-    sharpness_stride: int = 20
+    # ---- optimization ----
+    lr: float = 0.1
+    epochs: int = 2000
+    log_every_epochs: int = 5
+
+    # ---- loss selection ----
+    loss_name: str = "mse"            # "mse", "l1", "custom"
+    custom_loss: Optional[str] = None # "package.module:func"
+
+    # ---- NTK logging ----
+    ntk_probe_points: int = 64
+    ntk_topk: int = 6
+
+    # ---- sharpness (power iteration) ----
     power_iters: int = 20
 
-    # Visualization grid
-    n_plot_points: int = 1200
-    x_vis_min: Optional[float] = None
-    x_vis_max: Optional[float] = None
-    y_vis_min: Optional[float] = None
-    y_vis_max: Optional[float] = None
-    vis_pad_frac: float = 0.5
-
-    # For 2-D, set ranges for each axis (ignored if input_dim=1)
-    x1_min: float = -2 * math.pi
-    x1_max: float =  2 * math.pi
-    x2_min: float = -2 * math.pi
-    x2_max: float =  2 * math.pi
-
-    # Figure / animation
-    dpi: int = 140
-    figsize: Tuple[float, float] = (11.5, 7.2)
-    fps_mp4: int = 20
-    bitrate_mp4: int = 1800
-    fps_gif: int = 15
-
-    # ---- Run management ----
-    runs_root: str = "runs"
-    project_name: Optional[str] = None
-    run_dir: Optional[str] = None
-    out_mp4: Optional[str] = None
-    out_gif: Optional[str] = None
-
-    # Optional ffmpeg path
-    ffmpeg_path: Optional[str] = None
-
-    # Visualization padding (used for both dims if input_dim=2)
-    vis_pad_frac: float = 0.5
+    # ---- fit storage (1D) ----
+    fit_store: bool = True
+    fit_dtype: str = "float16"        # "float16" | "float32"
+    fit_points_1d: int = 512          # subsampled from X_vis for storage

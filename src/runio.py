@@ -1,59 +1,41 @@
-# sinfit/runio.py
 from __future__ import annotations
-import json
 import os
-import re
-from dataclasses import asdict
-from typing import Optional
+import json
+import dataclasses
 from .config import Config
 
-def _ensure_dir(path: str) -> None:
-    os.makedirs(path, exist_ok=True)
-
-def _next_index_name(root: str, base: str) -> str:
-    """
-    Find the next available numbered folder:
-      base_001, base_002, ...
-    If none exist, returns base_001.
-    """
-    _ensure_dir(root)
-    pattern = re.compile(rf"^{re.escape(base)}_(\d+)$")
-    max_idx = 0
-    for name in os.listdir(root):
-        m = pattern.match(name)
-        if m:
-            max_idx = max(max_idx, int(m.group(1)))
-    return f"{base}_{max_idx + 1:03d}"
 
 def prepare_run_dir(cfg: Config) -> str:
-    """
-    Create and return a unique directory for this run inside cfg.runs_root.
-    If cfg.project_name is None -> base='run', else base=slug(project_name).
-    """
-    base = _slugify(cfg.project_name) if cfg.project_name else "run"
-    run_name = _next_index_name(cfg.runs_root, base)
-    run_dir = os.path.join(cfg.runs_root, run_name)
-    _ensure_dir(run_dir)
+    base = os.path.abspath("runs")
+    os.makedirs(base, exist_ok=True)
 
-    # Set output paths on cfg
+    name = cfg.project_name or "run"
+    run_dir = os.path.join(base, name)
+    if os.path.exists(run_dir):
+        # increment suffix
+        i = 1
+        while os.path.exists(f"{run_dir}_{i}"):
+            i += 1
+        run_dir = f"{run_dir}_{i}"
+    os.makedirs(run_dir, exist_ok=True)
+
     cfg.run_dir = run_dir
-    cfg.out_mp4 = os.path.join(run_dir, "animation.mp4")
-    cfg.out_gif = os.path.join(run_dir, "animation.gif")
-
-    # Save config.json (pretty-printed)
-    save_config(cfg)
-
+    cfg.metrics_csv     = os.path.join(run_dir, "metrics.csv")
+    cfg.fits_path       = os.path.join(run_dir, "fits.dat")
+    cfg.fits_meta_path  = os.path.join(run_dir, "fits_meta.json")
+    cfg.fits_x_path     = os.path.join(run_dir, "fits_grid.npy")
+    cfg.train_points_path = os.path.join(run_dir, "train_points.npy")
     return run_dir
 
-def save_config(cfg: Config) -> None:
-    assert cfg.run_dir is not None, "run_dir must be set before saving config"
-    path = os.path.join(cfg.run_dir, "config.json")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(asdict(cfg), f, indent=2)
-
-def _slugify(name: str) -> str:
-    # simple slug: lowercase, alnum + dashes/underscores
-    s = name.strip().lower()
-    s = re.sub(r"[^\w\-]+", "-", s)
-    s = re.sub(r"-{2,}", "-", s).strip("-")
-    return s or "run"
+def save_config_json(cfg: Config, filename: str = "config.json") -> str:
+    """
+    Dump the full Config dataclass to a JSON file in the run directory.
+    Returns the full path to the JSON file.
+    """
+    assert cfg.run_dir is not None, "Call prepare_run_dir(cfg) before save_config_json."
+    path = os.path.join(cfg.run_dir, filename)
+    data = dataclasses.asdict(cfg)
+    # ensure deterministic key order & readable formatting
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2, sort_keys=True)
+    return path

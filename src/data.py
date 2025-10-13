@@ -1,45 +1,67 @@
-# sinfit/data.py
 from __future__ import annotations
-from typing import Tuple, Callable, Optional, Dict, Any
+from typing import Callable, Tuple
+import importlib
 import numpy as np
 import torch
 from .config import Config
-from .functions import FUNCTIONS
 
-TargetFn = Callable[[np.ndarray], np.ndarray]
-
-def set_seeds(seed: int) -> None:
-    torch.manual_seed(seed)
+def set_seeds(seed: int):
+    import random, os
+    random.seed(seed)
     np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
-def resolve_target_fn(cfg: Config, override_fn: Optional[TargetFn] = None) -> Tuple[TargetFn, Dict[str, Any]]:
-    """
-    Resolve the target function to use.
-    Priority:
-      1) override_fn if provided (callable)
-      2) FUNCTIONS[cfg.function_name] with cfg.function_params
-    Returns:
-      (callable f(x), params_dict_used)
-    """
+def _target_sin(x: np.ndarray) -> np.ndarray:
+    return np.sin(x).astype(np.float32) + np.sin(2*x).astype(np.float32) + np.sin(4*x).astype(np.float32)
+
+def _target_poly(x: np.ndarray, a=0.0,b=0.0,c=1.0,d=0.0) -> np.ndarray:
+    return (a*x**3 + b*x**2 + c*x + d).astype(np.float32)
+
+def _resolve_custom(path: str) -> Callable[[np.ndarray], np.ndarray]:
+    if ":" not in path:
+        raise ValueError("custom function path must be 'package.module:func_name'")
+    m, f = path.split(":", 1)
+    mod = importlib.import_module(m)
+    fn = getattr(mod, f)
+    if not callable(fn):
+        raise ValueError(f"{path} is not callable")
+    return fn
+
+def resolve_target_fn(cfg: Config, override_fn=None):
     if override_fn is not None:
-        return override_fn, (cfg.function_params or {})
-    if cfg.function_name not in FUNCTIONS:
-        raise ValueError(f"Unknown function_name '{cfg.function_name}'. Available: {list(FUNCTIONS.keys())}")
-    return (lambda x: FUNCTIONS[cfg.function_name](x, **(cfg.function_params or {}))), (cfg.function_params or {})
+        return override_fn, {}
 
-def generate_data(cfg: Config, target_fn: TargetFn) -> Tuple[torch.Tensor, torch.Tensor]:
-    if cfg.input_dim == 1:
-        x = np.random.uniform(cfg.x_min, cfg.x_max, size=cfg.n_samples).astype(np.float32)
-        X = x[:, None]  # (N,1)
-    elif cfg.input_dim == 2:
-        x1 = np.random.uniform(cfg.x1_min, cfg.x1_max, size=cfg.n_samples).astype(np.float32)
-        x2 = np.random.uniform(cfg.x2_min, cfg.x2_max, size=cfg.n_samples).astype(np.float32)
-        X = np.stack([x1, x2], axis=1)  # (N,2)
-    else:
-        raise ValueError("input_dim must be 1 or 2")
+    name = (cfg.function_name or "sin").lower()
+    params = cfg.function_params or {}
+    if name == "sin":
+        return _target_sin, {}
+    if name == "poly":
+        def fn(x: np.ndarray):
+            return _target_poly(x, **params)
+        return fn, params
+    if name == "custom":
+        assert cfg.custom_loss is None  # unrelated; just for clarity
+        path = params.get("path", None)
+        if path is None:
+            raise ValueError("For function_name='custom', set function_params={'path': 'module:func'}")
+        return _resolve_custom(path), {"path": path}
+    raise ValueError(f"unknown function_name: {cfg.function_name}")
 
+def generate_data(cfg: Config, target_fn: Callable[[np.ndarray], np.ndarray]) -> Tuple[torch.Tensor, torch.Tensor]:
+    # training x in [x_min, x_max]
+    x = np.random.uniform(cfg.x_min, cfg.x_max, size=cfg.n_samples).astype(np.float32)
+    X = x[:, None]  # (N,1)
     y_clean = target_fn(X).astype(np.float32)
     noise = (cfg.noise_std * np.random.randn(cfg.n_samples)).astype(np.float32)
-    y = y_clean + noise
+    y = y_clean + noise[:, None]
+    return torch.from_numpy(X), torch.from_numpy(y)
 
-    return torch.from_numpy(X), torch.from_numpy(y[:, None])
+def build_vis_grid(cfg: Config, target_fn: Callable[[np.ndarray], np.ndarray]):
+    span = cfg.x_max - cfg.x_min
+    lo = cfg.x_min - cfg.vis_pad_frac * span
+    hi = cfg.x_max + cfg.vis_pad_frac * span
+    Xv = np.linspace(lo, hi, cfg.n_plot_points, dtype=np.float32)[:, None]
+    y_true = target_fn(Xv).astype(np.float32)
+    return Xv, y_true
