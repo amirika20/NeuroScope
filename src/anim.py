@@ -52,7 +52,9 @@ def make_anim(
     ax_eigs  = fig.add_subplot(gs[0, 2])
     ax_sharp = fig.add_subplot(gs[1, 0])
     ax_proj  = fig.add_subplot(gs[1, 1])
-    ax_spec  = fig.add_subplot(gs[1, 2]) 
+    ax_spec  = fig.add_subplot(gs[1, 2])
+    ax_regions = fig.add_subplot(gs[2, 0])  # linear region count
+
     # gs[1,2] left unused intentionally (spacer)
 
     # --- (0,0) function fit panel ---
@@ -115,6 +117,13 @@ def make_anim(
     if spec_cols:
         ax_spec.legend(loc="best", ncol=min(3, len(spec_cols)))
 
+    # --- (2,0) linear region count over epochs ---
+    (linreg_line,) = ax_regions.plot([], [], lw=2, label="# linear regions")
+    ax_regions.set_title("Linear regions along X_vis")
+    ax_regions.set_xlabel("epoch"); ax_regions.set_ylabel("count")
+    ax_regions.grid(True, alpha=0.3)
+    ax_regions.legend(loc="best")
+
     # Align df rows to schedule
     df_sched = pd.DataFrame({"epoch": schedule})
     dfm = df_sched.merge(df, on="epoch", how="left").fillna(method="ffill")
@@ -128,6 +137,7 @@ def make_anim(
     proj_cum  = dfm["proj_cum"].values  if "proj_cum"  in dfm.columns else np.full_like(sharp, np.nan)
     eig_mat = dfm[eig_cols].values if eig_cols else np.zeros((len(dfm), 0))
     spec_mat = dfm[spec_cols].values if spec_cols else np.zeros((len(dfm), 0))
+    linreg = dfm["linear_regions"].values if "linear_regions" in dfm.columns else np.full(len(dfm), np.nan)
 
     # function panel y-limits from diverse samples
     y_samples = [np.array(fits[0]), np.array(fits[min(T-1, T//2)]), np.array(fits[T-1])]
@@ -151,7 +161,8 @@ def make_anim(
             l.set_data([], [])
         for l in spec_lines:
             l.set_data([], [])
-        return (line_pred, loss_line, gen_line, sharp_line, sharp2_line, proj_step_line, proj_cum_line, *eig_lines, *spec_lines)
+        linreg_line.set_data([], [])
+        return (line_pred, loss_line, gen_line, sharp_line, sharp2_line, proj_step_line, proj_cum_line, *eig_lines, *spec_lines, linreg_line)
 
     def update(t: int):
         ep = epochs[:t+1]
@@ -223,7 +234,17 @@ def make_anim(
                 ax_spec.set_xlim(epochs[0], epochs[-1])
                 ax_spec.set_ylim(max(0.0, lo - pad), hi + pad)
 
-        return (line_pred, loss_line, gen_line, sharp_line, sharp2_line, proj_step_line, proj_cum_line, *eig_lines, *spec_lines)
+        # linear region count
+        lin = linreg[:t+1]
+        if np.isfinite(lin).any():
+            linreg_line.set_data(ep, lin)
+            vals = lin[np.isfinite(lin)]
+            lo, hi = float(np.nanmin(vals)), float(np.nanmax(vals))
+            pad = max(1.0, 0.08 * (hi - lo + 1e-12))
+            ax_regions.set_xlim(epochs[0], epochs[-1])
+            ax_regions.set_ylim(max(0.0, lo - pad), hi + pad)
+
+        return (line_pred, loss_line, gen_line, sharp_line, sharp2_line, proj_step_line, proj_cum_line, *eig_lines, *spec_lines, linreg_line)
 
     anim = FuncAnimation(fig, update, init_func=init, frames=T, interval=60, blit=False)
 

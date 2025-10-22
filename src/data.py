@@ -14,7 +14,7 @@ def set_seeds(seed: int):
         torch.cuda.manual_seed_all(seed)
 
 def _target_sin(x: np.ndarray) -> np.ndarray:
-    return np.sin(x).astype(np.float32) + np.sin(2*x).astype(np.float32) + np.sin(4*x).astype(np.float32)
+    return np.sin(x).astype(np.float32) #+ np.sin(2*x).astype(np.float32) + np.sin(4*x).astype(np.float32)
 
 def _target_poly(x: np.ndarray, a=0.0,b=0.0,c=1.0,d=0.0) -> np.ndarray:
     return (a*x**3 + b*x**2 + c*x + d).astype(np.float32)

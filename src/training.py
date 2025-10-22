@@ -10,8 +10,9 @@ import os
 
 from .config import Config
 from .fit_store import FitRecorder
-from .metrics import mse_full_range, ntk_topk_eigs
+from .metrics import mse_full_range, ntk_topk_eigs, count_linear_regions_relu_by_activation
 from .linalg import top_hessian_eigenpair, flatten_params, second_hessian_eigenvalue_deflated  # <-- NEW import
+
 
 CriterionFn = Callable[[nn.Module, torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
 
@@ -83,6 +84,13 @@ def run_training_and_log_csv(
 
             # (B) metrics
             gen_mse = mse_full_range(model, X_vis_t, y_true_vis_t)
+
+            # Linear regions along X_vis (exact for ReLU; slope-proxy otherwise)
+            try:
+                lin_regions = count_linear_regions_relu_by_activation(model, X_vis_t)
+            except Exception:
+                lin_regions = np.nan
+
 
             # Top Hessian eigenpair (use your working implementation)
             try:
@@ -178,6 +186,7 @@ def run_training_and_log_csv(
                 "sharpness_2": lam2,
                 "proj_step": proj_step,   # <-- NEW
                 "proj_cum": proj_cum,     # <-- NEW
+                "linear_regions": float(lin_regions),
             }
             for i, val in enumerate(eigs, start=1):
                 row[f"eig_{i}"] = float(val)
