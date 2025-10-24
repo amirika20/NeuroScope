@@ -31,6 +31,115 @@ def _gd_epoch(model: nn.Module, criterion: CriterionFn, X: torch.Tensor, y: torc
                 p.add_(-lr * p.grad)
     return float(loss.item())
 
+def _build_optimizer(cfg: Config, model: nn.Module) -> torch.optim.Optimizer | None:
+    """Return a torch optimizer for cfg.optimizer_name, or None for manual 'gd'."""
+    name = (getattr(cfg, "optimizer_name", "sgd") or "sgd").lower()
+    wd = float(getattr(cfg, "weight_decay", 0.0) or 0.0)
+    if name == "gd":
+        return None  # manual update (legacy)
+    if name == "sgd":
+        return torch.optim.SGD(
+            model.parameters(),
+            lr=float(cfg.lr),
+            momentum=float(getattr(cfg, "momentum", 0.0) or 0.0),
+            nesterov=bool(getattr(cfg, "nesterov", False)),
+            weight_decay=wd,
+        )
+    if name == "adam":
+        b1 = float(getattr(cfg, "adam_beta1", 0.9))
+        b2 = float(getattr(cfg, "adam_beta2", 0.999))
+        eps = float(getattr(cfg, "adam_eps", 1e-8))
+        return torch.optim.Adam(
+            model.parameters(),
+            lr=float(cfg.lr),
+            betas=(b1, b2),
+            eps=eps,
+            weight_decay=wd,
+        )
+    raise ValueError(f"Unknown optimizer_name={cfg.optimizer_name!r} (use 'sgd' | 'adam' | 'gd').")
+
+# def _train_step(
+#     model: nn.Module,
+#     criterion: CriterionFn,
+#     X: torch.Tensor,
+#     y: torch.Tensor,
+#     cfg: Config,
+#     optim: torch.optim.Optimizer | None,
+# ) -> float:
+#     """One training step with either a torch optimizer or manual 'gd' fallback."""
+#     y_hat = model(X)
+#     loss = criterion(model, X, y_hat, y)
+#     model.zero_grad(set_to_none=True)
+#     loss.backward()
+#     gc = getattr(cfg, "grad_clip", None)
+#     if gc is not None and gc > 0:
+#         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=float(gc))
+#     if optim is None:
+#         # manual 'gd'
+#         with torch.no_grad():
+#             for p in model.parameters():
+#                 if p.grad is not None:
+#                     p.add_(-float(cfg.lr) * p.grad)
+#     else:
+#         optim.step()
+#     return float(loss.item())
+
+def _train_step(
+    model: nn.Module,
+    criterion: CriterionFn,
+    X_full: torch.Tensor,
+    y_full: torch.Tensor,
+    cfg: Config,
+    optim: torch.optim.Optimizer | None,
+) -> float:
+    """
+    One *epoch* of training over (X_full, y_full) using mini-batches.
+    Returns the sample-weighted average loss over the epoch.
+    """
+    model.train()
+    N = X_full.size(0)
+    B = int(getattr(cfg, "batch_size", N) or N)
+    shuffle = bool(getattr(cfg, "shuffle_batches", True))
+
+    if shuffle:
+        perm = torch.randperm(N, device=X_full.device)
+        X_epoch = X_full[perm]
+        y_epoch = y_full[perm]
+    else:
+        X_epoch, y_epoch = X_full, y_full
+
+    total_loss = 0.0
+    total_count = 0
+    for start in range(0, N, B):
+        end = min(start + B, N)
+        Xb = X_epoch[start:end]
+        yb = y_epoch[start:end]
+
+        y_hat = model(Xb)
+        loss = criterion(model, Xb, y_hat, yb)
+
+        # backward  step
+        model.zero_grad(set_to_none=True)
+        loss.backward()
+        gc = getattr(cfg, "grad_clip", None)
+        if gc is not None and gc > 0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=float(gc))
+        if optim is None:
+            # manual 'gd' update (SGD without momentum) on this mini-batch
+            with torch.no_grad():
+                for p in model.parameters():
+                    if p.grad is not None:
+                        p.add_(-float(cfg.lr) * p.grad)
+        else:
+            optim.step()
+
+        # track weighted average loss
+        bs = (end - start)
+        total_loss += float(loss.item()) * bs
+        total_count += bs
+
+    return total_loss / max(1, total_count)
+
 def _build_probe(cfg: Config, device: torch.device) -> torch.Tensor:
     xs = np.linspace(cfg.x_min, cfg.x_max, cfg.ntk_probe_points, dtype=np.float32)[:, None]
     return torch.from_numpy(xs).to(device)
@@ -71,6 +180,7 @@ def run_training_and_log_csv(
     X_probe_t = _build_probe(cfg, device)
 
     records: List[Dict[str, Any]] = []
+    optimizer = _build_optimizer(cfg, model)
 
     # --- Projection bookkeeping (all on CPU to avoid device mismatch) ---
     theta0_cpu = None           # flattened params at first snapshot
@@ -80,7 +190,8 @@ def run_training_and_log_csv(
 
     pbar = tqdm(range(1, cfg.epochs + 1), desc="Training (offline logging)")
     for epoch in pbar:
-        train_loss = _gd_epoch(model, criterion, X_train_t, y_train_t, cfg.lr)
+        # train_loss = _gd_epoch(model, criterion, X_train_t, y_train_t, cfg.lr)
+        train_loss = _train_step(model, criterion, X_train_t, y_train_t, cfg, optimizer)
 
         if epoch in schedule:
             # (A) store function fit snapshot

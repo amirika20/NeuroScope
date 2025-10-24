@@ -69,3 +69,18 @@ class Config:
     hess_store: bool = True
     hess_dtype: str = "float16"       # "float16" | "float32"
     hess_points_1d: int = 512
+
+    # ---- optimizer ----
+    optimizer_name: str = "sgd"       # "sgd" | "adam" | "gd" (manual gradient descent)
+    weight_decay: float = 0.0
+    grad_clip: float | None = None    # L2 global norm; set None to disable
+    # SGD-specific
+    momentum: float = 0.0
+    nesterov: bool = False
+    # Adam-specific
+    adam_beta1: float = 0.9
+    adam_beta2: float = 0.999
+    adam_eps: float = 1e-8
+
+    batch_size: int|None = 64
+    shuffle_batches: bool = True
