@@ -25,6 +25,12 @@ def prepare_run_dir(cfg: Config) -> str:
     cfg.fits_meta_path  = os.path.join(run_dir, "fits_meta.json")
     cfg.fits_x_path     = os.path.join(run_dir, "fits_grid.npy")
     cfg.train_points_path = os.path.join(run_dir, "train_points.npy")
+    # gradient memmap & meta
+    cfg.grads_path      = os.path.join(run_dir, "grads.dat")
+    cfg.grads_meta_path = os.path.join(run_dir, "grads_meta.json")
+    # second derivative memmap & meta
+    cfg.grads2_path      = os.path.join(run_dir, "grads2.dat")
+    cfg.grads2_meta_path = os.path.join(run_dir, "grads2_meta.json")
     return run_dir
 
 def save_config_json(cfg: Config, filename: str = "config.json") -> str:

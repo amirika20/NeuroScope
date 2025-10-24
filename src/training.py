@@ -3,13 +3,14 @@ from __future__ import annotations
 from typing import Callable, List, Dict, Any
 import numpy as np
 import pandas as pd
+import math
 import torch
 import torch.nn as nn
 from tqdm import tqdm
 import os
 
 from .config import Config
-from .fit_store import FitRecorder
+from .recorder import FitRecorder, GradRecorder, SecondGradRecorder
 from .metrics import mse_full_range, ntk_topk_eigs, count_linear_regions_relu_by_activation
 from .linalg import top_hessian_eigenpair, flatten_params, second_hessian_eigenvalue_deflated  # <-- NEW import
 
@@ -44,6 +45,7 @@ def run_training_and_log_csv(
     model: nn.Module,
     X_train_t: torch.Tensor,
     y_train_t: torch.Tensor,
+    y_train_clean_t: torch.Tensor,
     X_vis: np.ndarray,
     y_true_vis: np.ndarray,
     criterion: CriterionFn,
@@ -60,6 +62,8 @@ def run_training_and_log_csv(
     # Schedule & fit recorder
     schedule = _build_snapshot_schedule(cfg.epochs, cfg.log_every_epochs)
     fitrec = FitRecorder(cfg, X_vis, schedule=schedule, device=device)
+    gradrec = GradRecorder(cfg, X_vis, schedule=schedule, device=device) if getattr(cfg, "grad_store", True) else None
+    grad2rec = SecondGradRecorder(cfg, X_vis, schedule=schedule, device=device) if getattr(cfg, "hess_store", True) else None
 
     # Constant tensors
     X_vis_t = torch.from_numpy(X_vis).to(device)
@@ -81,13 +85,21 @@ def run_training_and_log_csv(
         if epoch in schedule:
             # (A) store function fit snapshot
             fitrec.record(model, epoch)
+            if gradrec is not None:
+                gradrec.record(model, epoch)
+
+            if grad2rec is not None:
+                grad2rec.record(model, epoch)
 
             # (B) metrics
-            gen_mse = mse_full_range(model, X_vis_t, y_true_vis_t)
+            # gen_mse = mse_full_range(model, X_vis_t, y_true_vis_t)
+            # gen_mse = criterion(model, X_train_t, y_train_clean_t)
+            gen_mse = criterion(model, X_train_t, model(X_train_t), y_train_clean_t).cpu().detach().item()
 
             # Linear regions along X_vis (exact for ReLU; slope-proxy otherwise)
             try:
-                lin_regions = count_linear_regions_relu_by_activation(model, X_vis_t)
+                # lin_regions = count_linear_regions_relu_by_activation(model, X_vis_t)
+                lin_regions = count_linear_regions_relu_by_activation(model, X_train_t)
             except Exception:
                 lin_regions = np.nan
 
@@ -122,7 +134,6 @@ def run_training_and_log_csv(
             # --- NEW: spectral norms (operator 2-norm) per Linear layer ---
             spec_vals = []
             try:
-                import math
                 for m in model.modules():
                     if isinstance(m, nn.Linear):
                         # Move to CPU for stable linalg; use float32 for speed/stability.
@@ -204,6 +215,10 @@ def run_training_and_log_csv(
             })
 
     fitrec.close()
+    if gradrec is not None:
+        gradrec.close()
+    if grad2rec is not None:
+        grad2rec.close()
     df = pd.DataFrame.from_records(records)
     df.to_csv(cfg.metrics_csv, index=False)
     print(f"[OK] metrics saved -> {cfg.metrics_csv}  (rows={len(df)})")

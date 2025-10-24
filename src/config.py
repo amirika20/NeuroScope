@@ -57,3 +57,15 @@ class Config:
     fit_store: bool = True
     fit_dtype: str = "float16"        # "float16" | "float32"
     fit_points_1d: int = 512          # subsampled from X_vis for storage
+
+    # ---- gradient (df/dx) storage (1D) ----
+    grad_store: bool = True
+    grad_dtype: str = "float16"       # "float16" | "float32"
+    grad_points_1d: int = 512         # use same subsample as fits by default
+    # finite-diff step for target derivative (used if no analytic derivative available)
+    target_grad_eps: float = 1e-3
+
+    # ---- second derivative (d2f/dx2) storage (1D) ----
+    hess_store: bool = True
+    hess_dtype: str = "float16"       # "float16" | "float32"
+    hess_points_1d: int = 512

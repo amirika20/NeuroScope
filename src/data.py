@@ -16,6 +16,10 @@ def set_seeds(seed: int):
 def _target_sin(x: np.ndarray) -> np.ndarray:
     return np.sin(x).astype(np.float32) #+ np.sin(2*x).astype(np.float32) + np.sin(4*x).astype(np.float32)
 
+def _target_cos(x: np.ndarray) -> np.ndarray:
+    return np.cos(x).astype(np.float32)
+
+
 def _target_poly(x: np.ndarray, a=0.0,b=0.0,c=1.0,d=0.0) -> np.ndarray:
     return (a*x**3 + b*x**2 + c*x + d).astype(np.float32)
 
@@ -37,6 +41,8 @@ def resolve_target_fn(cfg: Config, override_fn=None):
     params = cfg.function_params or {}
     if name == "sin":
         return _target_sin, {}
+    if name == "cos":
+        return _target_cos, {}
     if name == "poly":
         def fn(x: np.ndarray):
             return _target_poly(x, **params)
@@ -49,16 +55,16 @@ def resolve_target_fn(cfg: Config, override_fn=None):
         return _resolve_custom(path), {"path": path}
     raise ValueError(f"unknown function_name: {cfg.function_name}")
 
-def generate_data(cfg: Config, target_fn: Callable[[np.ndarray], np.ndarray]) -> Tuple[torch.Tensor, torch.Tensor]:
+def generate_data(cfg: Config, target_fn: Callable[[np.ndarray], np.ndarray]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     # training x in [x_min, x_max]
     x = np.random.uniform(cfg.x_min, cfg.x_max, size=cfg.n_samples).astype(np.float32)
     X = x[:, None]  # (N,1)
     y_clean = target_fn(X).astype(np.float32)
     noise = (cfg.noise_std * np.random.randn(cfg.n_samples)).astype(np.float32)
     y = y_clean + noise[:, None]
-    return torch.from_numpy(X), torch.from_numpy(y)
+    return torch.from_numpy(X), torch.from_numpy(y), torch.from_numpy(y_clean)
 
-def build_vis_grid(cfg: Config, target_fn: Callable[[np.ndarray], np.ndarray]):
+def build_vis_grid(cfg: Config, target_fn: Callable[[np.ndarray], np.ndarray]) -> Tuple[torch.Tensor, torch.Tensor]:
     span = cfg.x_max - cfg.x_min
     lo = cfg.x_min - cfg.vis_pad_frac * span
     hi = cfg.x_max + cfg.vis_pad_frac * span

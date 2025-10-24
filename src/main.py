@@ -22,10 +22,10 @@ def main(cfg: Config, target_fn_override=None, loss_fn: Optional[CriterionFn] = 
     # target function & data
     target_fn, used = resolve_target_fn(cfg, override_fn=target_fn_override)
     print(f"[INFO] target: {cfg.function_name} params={used}")
-    X_train_t, y_train_t = generate_data(cfg, target_fn)
+    X_train_t, y_train_t, y_train_clean_t = generate_data(cfg, target_fn)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    X_train_t, y_train_t = X_train_t.to(device), y_train_t.to(device)
+    X_train_t, y_train_t, y_train_clean_t = X_train_t.to(device), y_train_t.to(device), y_train_clean_t.to(device)
 
     # build vis grid & truth
     X_vis, y_true_vis = build_vis_grid(cfg, target_fn)
@@ -37,7 +37,7 @@ def main(cfg: Config, target_fn_override=None, loss_fn: Optional[CriterionFn] = 
     criterion = loss_fn if loss_fn is not None else get_loss_fn(cfg.loss_name, custom=cfg.custom_loss)
 
     # train & log
-    df = run_training_and_log_csv(cfg, model, X_train_t, y_train_t, X_vis, y_true_vis, criterion)
+    df = run_training_and_log_csv(cfg, model, X_train_t, y_train_t, y_train_clean_t, X_vis, y_true_vis, criterion)
 
     mp4_path = f"{run_dir}/progress.mp4"
     gif_path = f"{run_dir}/progress.gif"  # fallback target

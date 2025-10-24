@@ -16,11 +16,26 @@ def _load_run(run_dir: str):
     fits_path  = os.path.join(run_dir, "fits.dat")
     shape = tuple(meta["shape"])
     fits  = np.memmap(fits_path, mode="r", dtype=meta["dtype"], shape=shape)
+    # try to load gradient memmap if present
+    grads, gmeta = None, None
+    grads2, g2meta = None, None
+    gmeta_path = os.path.join(run_dir, "grads_meta.json")
+    if os.path.exists(gmeta_path):
+        gmeta = json.load(open(gmeta_path, "r"))
+        gshape = tuple(gmeta["shape"])
+        grads_path = os.path.join(run_dir, "grads.dat")
+        grads = np.memmap(grads_path, mode="r", dtype=gmeta["dtype"], shape=gshape)
+    g2meta_path = os.path.join(run_dir, "grads2_meta.json")
+    if os.path.exists(g2meta_path):
+        g2meta = json.load(open(g2meta_path, "r"))
+        g2shape = tuple(g2meta["shape"])
+        grads2_path = os.path.join(run_dir, "grads2.dat")
+        grads2 = np.memmap(grads2_path, mode="r", dtype=g2meta["dtype"], shape=g2shape)
     X_fit = np.load(grid_file) if grid_file else None
     train = np.load(train_file, allow_pickle=True).item() if train_file else None
     df    = pd.read_csv(os.path.join(run_dir, "metrics.csv"))
     schedule: List[int] = meta.get("schedule", list(df["epoch"].values))
-    return X_fit, fits, train, df, meta, schedule
+    return X_fit, fits, grads, grads2, train, df, meta, schedule
 
 def make_anim(
     run_dir: str,
@@ -39,7 +54,7 @@ def make_anim(
       Row 1: (0,0) Function fit   | (0,1) Train loss & Gen MSE | (0,2) NTK eigvals
       Row 2: (1,0) Sharpness (λ_max) + dashed 2/η line         | (1,1) Projections | (1,2) spacer
     """
-    X_fit, fits, train, df, meta, schedule = _load_run(run_dir)
+    X_fit, fits, grads, grads2, train, df, meta, schedule = _load_run(run_dir)
     assert X_fit is not None and fits is not None
     T, P = fits.shape
 
@@ -54,6 +69,8 @@ def make_anim(
     ax_proj  = fig.add_subplot(gs[1, 1])
     ax_spec  = fig.add_subplot(gs[1, 2])
     ax_regions = fig.add_subplot(gs[2, 0])  # linear region count
+    ax_dfdx    = fig.add_subplot(gs[2, 1])  # NEW: df/dx panel
+    ax_d2fdx2  = fig.add_subplot(gs[2, 2])  # NEW: d2f/dx2 panel
 
     # gs[1,2] left unused intentionally (spacer)
 
@@ -124,6 +141,33 @@ def make_anim(
     ax_regions.grid(True, alpha=0.3)
     ax_regions.legend(loc="best")
 
+    # --- (2,1) derivative panel (model vs target) ---
+    (dfdx_pred_line,) = ax_dfdx.plot([], [], lw=2, label="d f̂/dx")
+    if true_fn is not None:
+        # numerical derivative of target along X_fit
+        x_np = X_fit[:,0]
+        y_np = true_fn(X_fit)[:,0]
+        dfdx_true = np.gradient(y_np, x_np, edge_order=2)
+        ax_dfdx.plot(x_np, dfdx_true, ls="--", lw=2, label="d f/dx (target)")
+    ax_dfdx.set_title("First derivative along X_fit")
+    ax_dfdx.set_xlabel("x"); ax_dfdx.set_ylabel("df/dx")
+    ax_dfdx.grid(True, alpha=0.3)
+    ax_dfdx.legend(loc="best")
+
+    # --- (2,2) second-derivative panel (model vs target) ---
+    (d2fdx2_pred_line,) = ax_d2fdx2.plot([], [], lw=2, label="d² f̂/dx²")
+    if true_fn is not None:
+        x_np = X_fit[:,0]
+        y_np = true_fn(X_fit)[:,0]
+        dfdx_true = np.gradient(y_np, x_np, edge_order=2)
+        d2fdx2_true = np.gradient(dfdx_true, x_np, edge_order=2)
+        ax_d2fdx2.plot(x_np, d2fdx2_true, ls="--", lw=2, label="d² f/dx² (target)")
+    ax_d2fdx2.set_title("Second derivative along X_fit")
+    ax_d2fdx2.set_xlabel("x"); ax_d2fdx2.set_ylabel("d²f/dx²")
+    ax_d2fdx2.grid(True, alpha=0.3)
+    ax_d2fdx2.legend(loc="best")
+
+
     # Align df rows to schedule
     df_sched = pd.DataFrame({"epoch": schedule})
     dfm = df_sched.merge(df, on="epoch", how="left").fillna(method="ffill")
@@ -162,7 +206,9 @@ def make_anim(
         for l in spec_lines:
             l.set_data([], [])
         linreg_line.set_data([], [])
-        return (line_pred, loss_line, gen_line, sharp_line, sharp2_line, proj_step_line, proj_cum_line, *eig_lines, *spec_lines, linreg_line)
+        dfdx_pred_line.set_data([], [])
+        d2fdx2_pred_line.set_data([], [])
+        return (line_pred, loss_line, gen_line, sharp_line, sharp2_line, proj_step_line, proj_cum_line, *eig_lines, *spec_lines, linreg_line, dfdx_pred_line, d2fdx2_pred_line)
 
     def update(t: int):
         ep = epochs[:t+1]
@@ -244,7 +290,33 @@ def make_anim(
             ax_regions.set_xlim(epochs[0], epochs[-1])
             ax_regions.set_ylim(max(0.0, lo - pad), hi + pad)
 
-        return (line_pred, loss_line, gen_line, sharp_line, sharp2_line, proj_step_line, proj_cum_line, *eig_lines, *spec_lines, linreg_line)
+        
+        # derivative panel (needs grads memmap)
+        if grads is not None:
+            dfdx = np.array(grads[t])  # (P_fit,)
+            # X_fit saved on the same subsample indices as recorder
+            # draw as a line across the subsampled grid points
+            dfdx_pred_line.set_data(X_fit[:,0], dfdx)
+            vals = dfdx[np.isfinite(dfdx)]
+            if vals.size:
+                lo, hi = float(np.nanmin(vals)), float(np.nanmax(vals))
+                pad = 0.08 * (hi - lo + 1e-12)
+                ax_dfdx.set_xlim(float(X_fit[:,0].min()), float(X_fit[:,0].max()))
+                ax_dfdx.set_ylim(lo - pad, hi + pad)
+
+
+        # second-derivative panel (needs grads2 memmap)
+        if grads2 is not None:
+            d2 = np.array(grads2[t])  # (P_fit,)
+            d2fdx2_pred_line.set_data(X_fit[:,0], d2)
+            vals2 = d2[np.isfinite(d2)]
+            if vals2.size:
+                lo, hi = float(np.nanmin(vals2)), float(np.nanmax(vals2))
+                pad = 0.08 * (hi - lo + 1e-12)
+                ax_d2fdx2.set_xlim(float(X_fit[:,0].min()), float(X_fit[:,0].max()))
+                ax_d2fdx2.set_ylim(lo - pad, hi + pad)
+
+        return (line_pred, loss_line, gen_line, sharp_line, sharp2_line, proj_step_line, proj_cum_line, *eig_lines, *spec_lines, linreg_line, dfdx_pred_line, d2fdx2_pred_line)
 
     anim = FuncAnimation(fig, update, init_func=init, frames=T, interval=60, blit=False)
 
